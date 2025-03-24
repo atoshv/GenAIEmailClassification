@@ -1,0 +1,5 @@
+# Financial Email Classifier  
+**Author**: ATOSH VEER  
+**License**: GNU GPLv3
+
+A GenAI-powered system for classifying banking service requests.

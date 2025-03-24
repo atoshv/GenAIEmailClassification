@@ -1,0 +1,11 @@
+transformers
+torch
+pdfplumber
+python-docx
+scikit-learn
+accelerate
+datasets
+spacy
+fpdf
+openai
+python-dotenv
