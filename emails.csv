@@ -17,3 +17,8 @@ text,label,priority
 "Modify loan LN-753951 terms to 6.15% interest.",1,medium
 "Process $18,000 payment for invoice INV-456.",0,high
 "Change loan LN-246802 rate from 7.5% to 6.9%.",1,medium
+"Can you lower my rate from 6% to 5.5%?",1,medium
+"Please reduce interest from 7.25% → 6.75%",1,medium
+"Reduce rate from 6.25% to 5.75% on loan LN-88992",1,medium
+"Please change my 7.1% rate to 6.5%",1,medium
+"Adjust interest from 8.0% → 7.25% for account ACCT-789",1,medium
