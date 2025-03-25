@@ -15,6 +15,7 @@ import re
 import json
 import time
 import logging
+import glob
 import requests
 from email import policy
 from email.parser import BytesParser
@@ -683,11 +684,8 @@ if __name__ == "__main__":
     logging.info("Starting enhanced email classification pipeline")
     
     # Test files - automatically filter to existing files
-    test_files = [f for f in [
-        "sample_email.eml",
-        "financial_request.pdf", 
-        "sample_email.txt"
-    ] if os.path.exists(f)]
+    test_files = [f for f in glob.glob("*.*") 
+                if f.lower().endswith(('.pdf', '.eml', '.txt', '.doc', '.docx'))]
     
     if not test_files:
         logging.error("No test files found!")
