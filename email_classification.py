@@ -39,9 +39,19 @@ logging.basicConfig(
     filename="email_classification.log",
 )
 
-# Initialize DeepSeek enabled flag
-DEEPSEEK_ENABLED = True if os.getenv("DEEPSEEK_API_KEY") else False
+# Initialize API flags with more robust checking
+OPENROUTER_ENABLED = bool(os.getenv("OPENROUTER_API_KEY"))
+DEEPSEEK_ENABLED = bool(os.getenv("DEEPSEEK_API_KEY"))  # Keeping for backward compatibility
+
+print(f"OpenRouter enabled: {OPENROUTER_ENABLED}")
 print(f"DeepSeek enabled: {DEEPSEEK_ENABLED}")  # Debug output
+
+if OPENROUTER_ENABLED:
+    logging.info("OpenRouter API key found and enabled")
+elif DEEPSEEK_ENABLED:
+    logging.info("DeepSeek API key found and enabled")
+else:
+    logging.info("No API keys found - using local models only")
 
 # ========================
 # 2. MODEL INITIALIZATION
@@ -175,102 +185,246 @@ def assign_to_team(classification, entities):
     
     return rules.get(classification['label'], 'General Servicing Team')
 
-def query_deepseek(prompt, max_retries=2):
+def query_openrouter(prompt, max_retries=3):
+    """Robust OpenRouter API query with proper error handling"""
+    global OPENROUTER_ENABLED
+    
+    if not OPENROUTER_ENABLED:
+        logging.info("OpenRouter disabled - skipping API call")
+        return None
+
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        logging.error("OpenRouter API key not configured")
+        OPENROUTER_ENABLED = False
+        return None
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "Email Classification System"
+    }
+
+    payload = {
+        "model": "openai/gpt-3.5-turbo",  # Can be changed to other models
+        "messages": [{
+            "role": "system",
+            "content": "You are a helpful financial email classification assistant."
+        }, {
+            "role": "user", 
+            "content": prompt
+        }],
+        "temperature": 0.1,
+        "max_tokens": 300
+    }
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(
+                url, 
+                headers=headers, 
+                json=payload, 
+                timeout=30
+            )
+            
+            if response.status_code == 400:
+                logging.error(f"Bad request - check your prompt format. Response: {response.text}")
+                continue
+            elif response.status_code == 401:
+                logging.error("Invalid API key - disabling OpenRouter")
+                OPENROUTER_ENABLED = False
+                return None
+            elif response.status_code == 402:
+                logging.error("Payment required - disabling OpenRouter")
+                OPENROUTER_ENABLED = False
+                return None
+            elif response.status_code == 429:
+                wait_time = 2 * (attempt + 1)
+                logging.warning(f"Rate limited - waiting {wait_time} seconds")
+                time.sleep(wait_time)
+                continue
+                
+            response.raise_for_status()
+            
+            try:
+                json_response = response.json()
+                if not json_response.get('choices'):
+                    logging.error("Invalid API response format - no choices")
+                    continue
+                return json_response
+            except ValueError:
+                logging.error("Invalid JSON response from API")
+                continue
+                
+        except requests.exceptions.RequestException as e:
+            logging.warning(f"Attempt {attempt+1} failed: {str(e)}")
+            time.sleep(1 * (attempt + 1))
+    
+    logging.warning("Max retries reached for OpenRouter API")
+    return None
+
+def query_deepseek(prompt, max_retries=3):
     """Robust DeepSeek API query with proper error handling"""
     global DEEPSEEK_ENABLED
     
     if not DEEPSEEK_ENABLED:
+        logging.info("DeepSeek disabled - skipping API call")
         return None
 
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         logging.error("DeepSeek API key not configured")
+        DEEPSEEK_ENABLED = False
         return None
 
     url = "https://api.deepseek.com/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
 
     payload = {
         "model": "deepseek-chat",
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{
+            "role": "system",
+            "content": "You are a helpful financial email classification assistant."
+        }, {
+            "role": "user", 
+            "content": prompt
+        }],
         "temperature": 0.1,
         "max_tokens": 300,
+        "top_p": 0.9,
         "response_format": {"type": "json_object"}
     }
 
     for attempt in range(max_retries):
         try:
-            response = requests.post(url, headers=headers, json=payload, timeout=30)
-            if response.status_code == 402:
+            response = requests.post(
+                url, 
+                headers=headers, 
+                json=payload, 
+                timeout=30
+            )
+            
+            if response.status_code == 400:
+                logging.error(f"Bad request - check your prompt format. Response: {response.text}")
+                continue
+            elif response.status_code == 402:
                 logging.error("Payment required - disabling DeepSeek")
                 DEEPSEEK_ENABLED = False
                 return None
+            elif response.status_code == 401:
+                logging.error("Invalid API key - disabling DeepSeek")
+                DEEPSEEK_ENABLED = False
+                return None
+            elif response.status_code == 429:
+                wait_time = 2 * (attempt + 1)
+                logging.warning(f"Rate limited - waiting {wait_time} seconds")
+                time.sleep(wait_time)
+                continue
+                
             response.raise_for_status()
-            return response.json()
-        except Exception as e:
+            
+            try:
+                json_response = response.json()
+                if not json_response.get('choices'):
+                    logging.error("Invalid API response format - no choices")
+                    continue
+                return json_response
+            except ValueError:
+                logging.error("Invalid JSON response from API")
+                continue
+                
+        except requests.exceptions.RequestException as e:
             logging.warning(f"Attempt {attempt+1} failed: {str(e)}")
             time.sleep(1 * (attempt + 1))
     
+    logging.warning("Max retries reached for DeepSeek API")
     return None
 
-def classify_with_deepseek(text):
-    prompt = """You are a financial email classifier. Return JSON with these EXACT fields:
-    {
-        "category": "Money Movement Inbound|Adjustment|etc",
-        "subtype": "Principal|Interest|etc or null",
-        "confidence": 0.95,
-        "reasoning": "Detailed explanation of classification",
-        "entities": {
-            "amount": "$15,000",
-            "date": "25FEB21",
-            "account": "Account123",
-            "loan_id": "123456",
-            "current_rate": "5.5%",
-            "requested_rate": "4.5%"
-        }
-    }
-
+def classify_with_llm(text):
+    """Unified LLM classification that tries OpenRouter first, then DeepSeek"""
+    system_prompt = """You are a financial email classification assistant. 
+    Analyze the email content and return JSON with these exact fields:
+    - category: One of the valid categories
+    - subtype: Appropriate subtype or null
+    - confidence: Confidence score (0-1)
+    - reasoning: Explanation of classification
+    - entities: Extracted financial entities"""
+    
+    user_prompt = f"""Classify this financial email:
+    
     RULES:
-    1. category MUST be one of: """ + ', '.join(VALID_CATEGORIES) + """
-    2. For interest rate change requests, use "Adjustment" category
-    3. For money transfers, include amount/date/account
-    4. For rate changes, include loan_id/current_rate/requested_rate
-    5. reasoning MUST explain your decision
-
+    1. category MUST be one of: {', '.join(VALID_CATEGORIES)}
+    2. For interest rate changes, use "Adjustment"
+    3. For money transfers, use appropriate Money Movement type
+    4. Include all relevant entities
+    
     Email Content:
-    """ + text
+    {text}
+    
+    Return valid JSON only with the required fields."""
 
-    response = query_deepseek(prompt)
-    if not response or 'choices' not in response:
-        return None
-
-    try:
-        result = json.loads(response['choices'][0]['message']['content'])
-        
-        # Strict validation
-        if result['category'] not in VALID_CATEGORIES:
-            raise ValueError("Invalid category")
-            
-        if not isinstance(result.get('entities', {}), dict):
-            raise ValueError("Entities must be a dictionary")
-            
-        if 'reasoning' not in result:
-            raise ValueError("Missing reasoning field")
-            
-        return {
-            'label': result['category'],
-            'subtype': validate_subtype(result.get('subtype'), result['category']),
-            'score': min(max(float(result.get('confidence', 0.5)), 0.0), 1.0),
-            'reasoning': result.get('reasoning', 'No reasoning provided'),
-            'llm_entities': result.get('entities', {})
-        }
-
-    except Exception as e:
-        logging.error(f"LLM response parsing failed: {str(e)}")
-        return None
+    full_prompt = system_prompt + "\n\n" + user_prompt
+    
+    # Try OpenRouter first if enabled
+    if OPENROUTER_ENABLED:
+        response = query_openrouter(full_prompt)
+        if response:
+            try:
+                content = response['choices'][0]['message']['content']
+                result = json.loads(content)
+                
+                if 'category' not in result or result['category'] not in VALID_CATEGORIES:
+                    raise ValueError("Invalid category")
+                
+                # Fixed the score calculation here
+                confidence = float(result.get('confidence', 0.5))
+                confidence = max(0.0, min(1.0, confidence))  # Clamp between 0.0 and 1.0
+                    
+                return {
+                    'label': result['category'],
+                    'subtype': validate_subtype(result.get('subtype'), result['category']),
+                    'score': confidence,
+                    'reasoning': result.get('reasoning', 'No reasoning provided'),
+                    'llm_entities': result.get('entities', {}),
+                    'source': 'OpenRouter'
+                }
+            except Exception as e:
+                logging.error(f"OpenRouter response parsing failed: {str(e)}")
+                logging.debug(f"Response content: {content if 'content' in locals() else 'N/A'}")
+    
+    # Fallback to DeepSeek if enabled
+    if DEEPSEEK_ENABLED:
+        response = query_deepseek(full_prompt)
+        if response:
+            try:
+                result = json.loads(response['choices'][0]['message']['content'])
+                
+                if 'category' not in result or result['category'] not in VALID_CATEGORIES:
+                    raise ValueError("Invalid category")
+                
+                # Fixed the score calculation here too
+                confidence = float(result.get('confidence', 0.5))
+                confidence = max(0.0, min(1.0, confidence))  # Clamp between 0.0 and 1.0
+                    
+                return {
+                    'label': result['category'],
+                    'subtype': validate_subtype(result.get('subtype'), result['category']),
+                    'score': confidence,
+                    'reasoning': result.get('reasoning', 'No reasoning provided'),
+                    'llm_entities': result.get('entities', {}),
+                    'source': 'DeepSeek'
+                }
+            except Exception as e:
+                logging.error(f"DeepSeek response parsing failed: {str(e)}")
+                logging.debug(f"Response content: {response['choices'][0]['message']['content']}")
+    
+    return None
 
 def classify_with_fine_tuned_model(text):
     """Reliable fallback classification"""
@@ -300,7 +454,8 @@ def classify_with_fine_tuned_model(text):
             'score': result['score'],
             'subtype': subtype,
             'reasoning': 'Classified by local model',
-            'llm_entities': {}
+            'llm_entities': {},
+            'source': 'Local Model'
         }
     except Exception as e:
         logging.error(f"Local model failed: {str(e)}")
@@ -309,27 +464,28 @@ def classify_with_fine_tuned_model(text):
             'score': 0.0,
             'subtype': None,
             'reasoning': 'Classification failed',
-            'llm_entities': {}
+            'llm_entities': {},
+            'source': 'Error'
         }
 
 def classify_email(text):
-    """Main classification function with forced LLM priority"""
+    """Main classification function with proper fallback hierarchy"""
     if not text.strip():
         return {
             'label': 'Other',
             'score': 0.0,
             'subtype': None,
             'reasoning': 'Empty text',
-            'llm_entities': {}
+            'llm_entities': {},
+            'source': 'None'
         }
     
-    # Always try LLM first if enabled
-    if DEEPSEEK_ENABLED:
-        result = classify_with_deepseek(text)
-        if result:
-            return result
+    # Try LLM classification first (OpenRouter -> DeepSeek)
+    result = classify_with_llm(text)
+    if result:
+        return result
     
-    # Fallback to local model
+    # Final fallback to local model
     return classify_with_fine_tuned_model(text)
 
 def detect_duplicates(text, previous_emails, threshold=0.85):
@@ -476,10 +632,54 @@ def process_email(file_path, previous_emails=None):
     
     return results
 
-# ============================
-# 4. MAIN EXECUTION
-# ============================
+def test_api_connection():
+    """Comprehensive API connection test"""
+    print("\nTesting API connections...")
+    
+    # Test OpenRouter first
+    if OPENROUTER_ENABLED:
+        print("Testing OpenRouter connection...")
+        test_prompt = "Respond with this exact text: 'API_TEST_OK'"
+        response = query_openrouter(test_prompt)
+        
+        if response:
+            try:
+                content = response['choices'][0]['message']['content']
+                if "API_TEST_OK" in content:
+                    print("✅ OpenRouter API connection successful!")
+                    return True
+                else:
+                    print(f"❌ Unexpected OpenRouter response: {content}")
+            except KeyError:
+                print("❌ Invalid OpenRouter response format")
+    
+    # Then test DeepSeek if OpenRouter failed
+    if DEEPSEEK_ENABLED:
+        print("Testing DeepSeek connection...")
+        test_prompt = "Respond with this exact text: 'API_TEST_OK'"
+        response = query_deepseek(test_prompt)
+        
+        if response:
+            try:
+                content = response['choices'][0]['message']['content']
+                if "API_TEST_OK" in content:
+                    print("✅ DeepSeek API connection successful!")
+                    return True
+                else:
+                    print(f"❌ Unexpected DeepSeek response: {content}")
+            except KeyError:
+                print("❌ Invalid DeepSeek response format")
+    
+    print("❌ No working API connections found")
+    return False
+
 if __name__ == "__main__":
+    # Run connection test first
+    connection_ok = test_api_connection()
+    
+    if not connection_ok:
+        print("\n⚠️ Warning: Proceeding with local models only")
+    
     logging.info("Starting enhanced email classification pipeline")
     
     # Test files - automatically filter to existing files
