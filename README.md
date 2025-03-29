@@ -52,9 +52,16 @@
 
 **Installation**
     
-        git clone https://github.com/yourusername/financial-email-classifier.git
-        cd financial-email-classifier
+        git clone https://github.com/atoshv/GenAIEmailClassification.git
+        cd GenAIEmailClassification
+      
+        python -m venv venv
+        venv\Scripts\activate
+
         pip install -r requirements.txt
+
+        python -m spacy download en_core_web_sm
+        
 
 
 **Configuration**
