@@ -3,7 +3,7 @@
 **Automatically classify financial emails with 95%+ accuracy using NLP and LLMs**  
 *Perfect for banks, fintech, and accounting teams to automate payment processing workflows*
 
-![System Architecture](https://i.imgur.com/JQZ1KlD.png)  
+![System Architecture](https://i.imgur.com/your-real-image-id.png)
 *Example: Classifying inbound/outbound money movement requests*
 
 ## 🌟 Key Features
