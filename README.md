@@ -61,13 +61,10 @@ Rename .env.example to .env
     POST /set_category - Add new classification categories
 
     GET /get_mappings - View current taxonomy
+    
 
-📊 Performance Metrics
+<img width="289" alt="{466588F9-DF29-4022-8336-7A6BB65AE628}" src="https://github.com/user-attachments/assets/b0cf120d-0e53-40ba-b5a0-9e3641404412" />
 
-Model	            Accuracy	Precision   Recall      F1-Score
-Fine-tuned BERT	    94.7%	    95.2%	    94.1%	    94.6%
-LLM Fallback	    89.3%	    88.7%	    90.2%	    89.4%
-Rule Engine	        82.5%	    81.9%	    83.4%	    82.6%
 
 
 🛠️ Customization Guide
