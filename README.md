@@ -1,5 +1,6 @@
 # 📧 AI-Powered Email Classification System for Financial Requests
 
+
 **Automatically classify financial emails with 95%+ accuracy using NLP and LLMs**  
 *Perfect for banks, fintech, and accounting teams to automate payment processing workflows*
 
@@ -12,8 +13,11 @@
   ✔️ Confidence scoring for each prediction
   
 
+
 - **Multi-Source Processing**  
-  📧 EML files | 📝 TXT documents | 📄 PDF invoices | 📑 DOCX files  
+  📧 EML files | 📝 TXT documents | 📄 PDF invoices | 📑 DOCX files
+  
+
 
 - **Enterprise-Grade Tech Stack**  
   ```python
@@ -21,19 +25,32 @@
   - spaCy (Entity extraction)
   - Sentence-Transformers (Duplicate detection)
   - OpenRouter/DeepSeek API fallbacks
+  
 
-    Business Automation
-💼 Auto-assign to teams (Payments, Wire Transfers, Legal)
-🔔 Priority tagging (Critical/High/Medium/Low)
-🔍 Duplicate request detection
+
+
+**💼 Auto-assign to teams (Payments, Wire Transfers, Legal)**
+
+**🔔 Priority tagging (Critical/High/Medium/Low)**
+
+**🔍 Duplicate request detection**
+
+
+
+
 
 🚀 Quick Start
 
+
 **Prerequisites**
-{C1824A5A-83FF-4C52-8C24-B5FFBF3D7F67}.png
+    Python 3.9+ | pip | git
+
 
 **Installation**
-{42D9F78C-079D-4320-8426-82DCF681EEC0}.png
+    git clone https://github.com/yourusername/financial-email-classifier.git
+    cd financial-email-classifier
+    pip install -r requirements.txt
+
 
 **Configuration**
 Rename .env.example to .env
@@ -46,6 +63,7 @@ Rename .env.example to .env
     results = process_email("payment_request.eml")
     print(results['classification'])  
     # {'label': 'Money Movement Outbound', 'score': 0.97...}
+
 
 2.  Batch process folder:
 
