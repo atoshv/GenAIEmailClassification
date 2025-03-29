@@ -62,7 +62,7 @@ Rename .env.example to .env
     from email_classification import process_email
     results = process_email("payment_request.eml")
     print(results['classification'])  
-    # {'label': 'Money Movement Outbound', 'score': 0.97...}
+    Ex: {'label': 'Money Movement Outbound', 'score': 0.97...}
 
 
 2.  Batch process folder:
@@ -100,41 +100,33 @@ Rename .env.example to .env
 
 3. Adjust sensitivity:
 
-    # In email_classification.py
+    In email_classification.py
     CLASSIFICATION_THRESHOLD = 0.85  # Default confidence level
 
 
-🌐 System Architecture
-
-graph TD
-    A[Input Email] --> B{Financial?}
-    B -->|Yes| C[Classify]
-    B -->|No| D[Discard]
-    C --> E[API Attempt]
-    E -->|Success| F[LLM Result]
-    E -->|Fail| G[Local Model]
-    G --> H[Rule Fallback]
-    F --> I[Post-Processing]
-    H --> I
-    I --> J[Save Results]
 
 📜 License
-GNU GPLv3 | © 2024 atoshveer
+    GNU GPLv3 | © 2024 atoshveer
+
+
 
 💡 Support
-
-Found a bug?
-Open an issue, Want to contribute? 
+    Found a bug?
+    Open an issue, Want to contribute? 
 
 1.  Fork the repo
 2.  Create your feature branch
 3.  Submit a PR!
 
+
+
 🌍 Let’s Connect & Collaborate: 
 
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/atoshveer)  
-[![Twitter](https://img.shields.io/badge/Twitter-1DA1F2?style=flat-square&logo=twitter&logoColor=white)](https://twitter.com/atoshveer)  
-[![Gmail](https://img.shields.io/badge/Gmail-EA4335?style=flat-square&logo=gmail&logoColor=white)](mailto:veeratosh@gmail.com)
+    [![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/atoshveer)  
+    [![Twitter](https://img.shields.io/badge/Twitter-1DA1F2?style=flat-square&logo=twitter&logoColor=white)](https://twitter.com/atoshveer)  
+    [![Gmail](https://img.shields.io/badge/Gmail-EA4335?style=flat-square&logo=gmail&logoColor=white)](mailto:veeratosh@gmail.com)
+
+
 
 **Would you like me to:**
 
