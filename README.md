@@ -3,8 +3,6 @@
 **Automatically classify financial emails with 95%+ accuracy using NLP and LLMs**  
 *Perfect for banks, fintech, and accounting teams to automate payment processing workflows*
 
-![System Architecture](https://i.imgur.com/your-real-image-id.png)
-*Example: Classifying inbound/outbound money movement requests*
 
 ## 🌟 Key Features
 
@@ -12,6 +10,7 @@
   ✔️ Detect 7+ financial categories (Payments, Adjustments, Transfers)  
   ✔️ Subtype identification (Interest, Principal, Loan Payment)  
   ✔️ Confidence scoring for each prediction
+  
 
 - **Multi-Source Processing**  
   📧 EML files | 📝 TXT documents | 📄 PDF invoices | 📑 DOCX files  
