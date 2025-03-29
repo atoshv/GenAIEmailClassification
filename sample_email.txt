@@ -1,13 +1,13 @@
-Subject: Rate Adjustment Request
+Subject: Transfer Request 25-03-2025
 
-Dear Loan Team,
+Dear Team,
 
-Requesting rate modification:
+Please process this payment:
 
-Loan ID: LN-842975
-Current Rate: 4.00%
-Requested Rate: 3.80%
-Effective Date: 2025-03-24
+Amount: $4,657
+Account: ACCT-32674
+Date: 25MAR25
+Reference: Settlement Payment
 
-Thank you,
-Account Management
+Regards,
+Client Services

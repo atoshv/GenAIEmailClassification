@@ -1,130 +1,172 @@
 [
   {
-    "file_path": "sample_email.eml",
+    "file_path": "inbound_test.eml",
     "metadata": {
-      "from": "Atosh <client74@example.com>",
-      "to": "Loan Servicing Team <loans@bank.com>",
-      "subject": "Request for Money Movement Inbound",
-      "date": null
+      "from": "",
+      "to": "",
+      "subject": "Interest Payment Received",
+      "date": "",
+      "cc": "",
+      "bcc": "",
+      "message_id": "",
+      "content_type": "text/plain"
     },
-    "text": "Dear Team,\n\nI would like to request a money movement for the following transaction:\n\n- Amount: $33,342\n- Type: Principal\n- Date: 24MAR25\n- Account: Atosh\n- Reference: Fee Settlement\n\nPlease process this request at your earliest convenience.\n\nBest regards,\nAtosh",
+    "text": "Dear Team,\n\nWe have received interest payment of $500 for loan LN-123.\n\nRegards,\nAccounting",
     "classification": {
       "label": "Money Movement Inbound",
-      "score": 0.5022505521774292,
-      "subtype": "Principal",
-      "reasoning": "Classified by local model",
-      "llm_entities": {}
+      "score": 0.95,
+      "subtype": "Interest",
+      "reasoning": "Interest payment received - inbound transaction",
+      "llm_entities": {},
+      "source": "Local Model (Enhanced Logic)"
+    },
+    "duplicates": [],
+    "entities": {},
+    "priority": "high",
+    "assigned_team": "Payment Processing Team",
+    "processing_timestamp": "2025-03-29 11:04:53"
+  },
+  {
+    "file_path": "outbound_test.txt",
+    "metadata": {},
+    "text": "Subject: Payment Request\n\nPlease process payment of $1000 to account ACCT-456.\n\nBest,\nClient Services",
+    "classification": {
+      "label": "Money Movement Inbound",
+      "score": 0.5,
+      "subtype": null,
+      "reasoning": "Detected payment keywords",
+      "llm_entities": {},
+      "source": "Keyword Fallback"
     },
     "duplicates": [],
     "entities": {
-      "ORG": [
-        "Dear Team"
-      ],
-      "MONEY": [
-        "$33,342"
-      ],
-      "CARDINAL": [
-        "24MAR25"
+      "ACCOUNT": [
+        "ACCT"
       ],
       "PERSON": [
-        "Atosh"
-      ],
-      "DATE": [
-        "24MAR25"
-      ],
-      "ACCOUNT": [
-        "Atosh"
+        "account ACCT"
       ]
     },
     "priority": "high",
     "assigned_team": "Payment Processing Team",
-    "processing_timestamp": "2025-03-24 22:28:03"
+    "processing_timestamp": "2025-03-29 11:04:53"
   },
   {
-    "file_path": "financial_request.pdf",
-    "metadata": {},
-    "text": "Subject: Rate Adjustment Request\nDear Loan Team,\nRequesting rate change:\n- Loan ID: LN-264133\n- Current Rate: 6.29%\n- Requested Rate: 4.96%\n- Effective: 24-Mar-2025\nSincerely,\nClient Services",
+    "file_path": "sample_email copy.eml",
+    "metadata": {
+      "from": "Loan-45632 <client29@example.com>",
+      "to": "Loan Servicing Team <loans@bank.com>",
+      "subject": "Request for Money Movement Outbound",
+      "date": "",
+      "cc": "",
+      "bcc": "",
+      "message_id": "",
+      "content_type": "text/plain"
+    },
+    "text": "Dear Team,\n\nI would like to request a money movement for the following transaction:\n\n- Amount: $50,636\n- Type: Interest\n- Date: 26MAR25\n- Account: Loan-45632\n- Reference: Fee Settlement\n\nPlease process this request at your earliest convenience.\n\nBest regards,\nLoan-45632",
     "classification": {
-      "label": "Adjustment",
-      "score": 0.5127257108688354,
+      "label": "Other",
+      "score": 0.0,
       "subtype": null,
-      "reasoning": "Classified by local model",
-      "llm_entities": {}
+      "reasoning": "Low confidence in all classification methods",
+      "llm_entities": {},
+      "source": "Fallback"
     },
     "duplicates": [],
     "entities": {
-      "GPE": [
-        "Requesting"
+      "ACCOUNT": [
+        "Loan"
       ],
-      "PERCENT": [
-        "6.29%",
-        "4.96%"
-      ],
-      "CARDINAL": [
-        "24"
-      ],
-      "ORG": [
-        "Client Services"
-      ],
-      "LOAN_ID": [
-        "LN-264133"
-      ],
-      "INTEREST_RATE": [
-        "6.29%",
-        "4.96%"
+      "DATE": [
+        "26MAR25"
       ]
     },
-    "priority": "medium",
-    "assigned_team": "Loan Servicing Team",
-    "processing_timestamp": "2025-03-24 22:28:04"
+    "priority": "high",
+    "assigned_team": "General Servicing Team",
+    "processing_timestamp": "2025-03-29 11:04:53"
+  },
+  {
+    "file_path": "sample_email.eml",
+    "metadata": {
+      "from": "Loan-45632 <client29@example.com>",
+      "to": "Loan Servicing Team <loans@bank.com>",
+      "subject": "Request for Money Movement Outbound",
+      "date": "",
+      "cc": "",
+      "bcc": "",
+      "message_id": "",
+      "content_type": "text/plain"
+    },
+    "text": "Dear Team,\n\nI would like to request a money movement for the following transaction:\n\n- Amount: $50,636\n- Type: Interest\n- Date: 26MAR25\n- Account: Loan-45632\n- Reference: Fee Settlement\n\nPlease process this request at your earliest convenience.\n\nBest regards,\nLoan-45632",
+    "classification": {
+      "label": "Other",
+      "score": 0.0,
+      "subtype": null,
+      "reasoning": "Low confidence in all classification methods",
+      "llm_entities": {},
+      "source": "Fallback"
+    },
+    "duplicates": [
+      {
+        "index": 5,
+        "score": 1.0,
+        "preview": "Dear Team, I would like to request a money movement for the following transaction: -...",
+        "similarity_percentage": "100.0%"
+      }
+    ],
+    "entities": {
+      "ACCOUNT": [
+        "Loan"
+      ],
+      "DATE": [
+        "26MAR25"
+      ]
+    },
+    "priority": "high",
+    "assigned_team": "General Servicing Team",
+    "processing_timestamp": "2025-03-29 11:04:54"
   },
   {
     "file_path": "sample_email.txt",
     "metadata": {},
-    "text": "Subject: Rate Adjustment Request\n\nDear Loan Team,\n\nRequesting rate modification:\n\nLoan ID: LN-842975\nCurrent Rate: 4.00%\nRequested Rate: 3.80%\nEffective Date: 2025-03-24\n\nThank you,\nAccount Management",
+    "text": "Subject: Transfer Request 25-03-2025\n\nDear Team,\n\nPlease process this payment:\n\nAmount: $4,657\nAccount: ACCT-32674\nDate: 25MAR25\nReference: Settlement Payment\n\nRegards,\nClient Services",
     "classification": {
-      "label": "Adjustment",
-      "score": 0.5167941451072693,
+      "label": "Money Movement Outbound",
+      "score": 0.95,
       "subtype": null,
-      "reasoning": "Classified by local model",
-      "llm_entities": {}
+      "reasoning": "Payment request detected - outbound transaction",
+      "llm_entities": {
+        "ACCOUNT": [
+          "ACCT"
+        ],
+        "DATE": [
+          "25MAR25",
+          "25"
+        ]
+      },
+      "source": "Local Model (Enhanced Logic)"
     },
-    "duplicates": [
-      {
-        "index": 4,
-        "score": 0.9460501670837402,
-        "preview": "Subject: Rate Adjustment Request Dear Loan Team, Requesting rate change: - Loan ID: LN-264133 -..."
-      }
-    ],
+    "duplicates": [],
     "entities": {
-      "GPE": [
-        "Requesting"
-      ],
-      "PERCENT": [
-        "4.00%",
-        "3.80%"
-      ],
-      "ORG": [
-        "Requested Rate",
-        "Effective Date",
-        "Account Management"
+      "ACCOUNT": [
+        "ACCT"
       ],
       "DATE": [
-        "2025-03-24"
+        "25MAR25",
+        "25"
       ],
-      "ACCOUNT": [
-        "Management"
-      ],
-      "LOAN_ID": [
-        "LN-842975"
-      ],
-      "INTEREST_RATE": [
-        "4.00%",
-        "3.80%"
-      ]
+      "LLM_Entities": {
+        "ACCOUNT": [
+          "ACCT"
+        ],
+        "DATE": [
+          "25MAR25",
+          "25"
+        ]
+      }
     },
-    "priority": "medium",
-    "assigned_team": "Loan Servicing Team",
-    "processing_timestamp": "2025-03-24 22:28:04"
+    "priority": "high",
+    "assigned_team": "Wire Transfer Team",
+    "processing_timestamp": "2025-03-29 11:04:54"
   }
 ]

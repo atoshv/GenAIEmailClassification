@@ -7,5 +7,11 @@ accelerate
 datasets
 spacy
 fpdf
-openai
 python-dotenv
+sentence-transformers
+pytesseract
+flask
+werkzeug
+flask-cors
+thefuzz
+python-Levenshtein

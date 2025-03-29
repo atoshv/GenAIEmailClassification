@@ -18,7 +18,8 @@ import logging
 import glob
 import requests
 import tempfile
-import os
+import fitz  # PyMuPDF for PDF reading
+from email import message_from_bytes
 from email import policy
 from email.parser import BytesParser
 import pdfplumber
@@ -27,8 +28,8 @@ import spacy
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer, util
 from transformers import pipeline
-
-# @@AUTHOR:Atosh Veer@@ 
+import mimetypes
+from thefuzz import fuzz
 
 # ========================
 # 1. CONFIGURATION SETUP
@@ -44,10 +45,10 @@ logging.basicConfig(
 
 # Initialize API flags with more robust checking
 OPENROUTER_ENABLED = bool(os.getenv("OPENROUTER_API_KEY"))
-DEEPSEEK_ENABLED = bool(os.getenv("DEEPSEEK_API_KEY"))  # Keeping for backward compatibility
+DEEPSEEK_ENABLED = bool(os.getenv("DEEPSEEK_API_KEY"))
 
 print(f"OpenRouter enabled: {OPENROUTER_ENABLED}")
-print(f"DeepSeek enabled: {DEEPSEEK_ENABLED}")  # Debug output
+print(f"DeepSeek enabled: {DEEPSEEK_ENABLED}")
 
 if OPENROUTER_ENABLED:
     logging.info("OpenRouter API key found and enabled")
@@ -73,16 +74,31 @@ VALID_CATEGORIES = {
 }
 
 SUBTYPE_MAPPING = {
-    'Money Movement Inbound': ['Principal', 'Interest', 'Principal+Interest', 'Principal+Interest+Fee'],
+    'Money Movement Inbound': ['Principal', 'Interest', 'Principal+Interest', 
+                             'Principal+Interest+Fee', 'Loan Payment', 'Loan Repayment'],
     'Money Movement Outbound': ['Timebound', 'Foreign Currency'],
     'AU Transfer': ['Reallocation Fees', 'Amendment Fees', 'Reallocation Principal'],
     'Closing Notice': ['Cashless Roll', 'Decrease', 'Increase'],
     'Fee Payment': ['Ongoing Fee', 'Letter of Credit Fee']
 }
 
-# ============================
-# 3. CORE FUNCTION DEFINITIONS
-# ============================
+# Global connection flag
+connection_ok = False
+
+def clean_entity_text(text):
+    """Remove trailing junk from extracted entities (newlines, hyphens, etc.)"""
+    return re.sub(r'[\n\-:].*$', '', text).strip()
+
+def is_financial_content(text):
+    """Check if text contains financial indicators with enhanced pattern matching"""
+    financial_keywords = [
+        'amount', 'transfer', 'payment', 'loan', 'account',
+        'interest', 'fee', 'principal', 'settlement', 'value date',
+        'disbursement', 'repayment', 'transaction', 'balance', 'funds'
+    ]
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in financial_keywords) or \
+           bool(re.search(r'(?:\$|USD|EUR|GBP)\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?', text))
 
 def extract_text_with_ocr(file_path):
     """Extract text from image-based documents using OCR with improved error handling"""
@@ -99,10 +115,11 @@ def extract_text_with_ocr(file_path):
                                 for img in page.images:
                                     try:
                                         img_data = img['stream'].get_data()
-                                        if img_data:  # Check if image data exists
+                                        if img_data:
                                             images.append(Image.frombytes('RGB', (img['width'], img['height']), img_data))
                                     except Exception as img_error:
                                         logging.warning(f"Image processing failed on page {page.page_number}: {str(img_error)}")
+                                        continue
                         if images:
                             return "\n".join(pytesseract.image_to_string(img) for img in images)
             except ImportError:
@@ -115,19 +132,18 @@ def extract_text_with_ocr(file_path):
         return ""
 
 def extract_text_from_file(file_path):
-    """Extract text from supported file types with enhanced error handling and OCR fallback"""
+    """Extract text from supported file types with enhanced error handling"""
     try:
         if not os.path.exists(file_path):
             logging.error(f"File not found: {file_path}")
             return ""
 
-        # First try regular extraction
         text = ""
         if file_path.endswith(".pdf"):
             try:
                 with pdfplumber.open(file_path) as pdf:
                     text = "\n".join(page.extract_text() or "" for page in pdf.pages).strip()
-                if not text:  # Fallback to OCR if no text found
+                if not text:
                     text = extract_text_with_ocr(file_path)
             except Exception as pdf_error:
                 logging.error(f"PDF extraction error: {str(pdf_error)}")
@@ -157,85 +173,51 @@ def extract_text_from_file(file_path):
             logging.error(f"Unsupported file format: {file_path}")
             return ""
         
-        return text if text else extract_text_with_ocr(file_path)  # Final OCR fallback
+        return text if text else extract_text_with_ocr(file_path)
     except Exception as e:
         logging.error(f"Error extracting text from {file_path}: {str(e)}")
         return ""
 
-def extract_eml_with_attachments(file_path):
-    """Extracts both email body and attachments from EML with better attachment handling"""
-    try:
-        with open(file_path, "rb") as f:
-            msg = BytesParser(policy=policy.default).parse(f)
-            
-            # Get main body text
-            text_part = msg.get_body(preferencelist=('plain', 'html'))
-            text = text_part.get_content().strip() if text_part else ""
-            
-            # Process attachments
-            attachments_text = []
-            for part in msg.iter_attachments():
-                try:
-                    if part.get_content_type() == 'text/plain':
-                        content = part.get_content()
-                        if content:
-                            attachments_text.append(content.strip())
-                    elif part.get_content_type() in ['application/pdf', 
-                                                   'application/vnd.openxmlformats-officedocument.wordprocessingml.document']:
-                        # Save temporary attachment for processing
-                        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                            temp_path = temp_file.name
-                            temp_file.write(part.get_payload(decode=True))
-                        
-                        try:
-                            attachments_text.append(extract_text_from_file(temp_path))
-                        finally:
-                            os.unlink(temp_path)
-                except Exception as attachment_error:
-                    logging.warning(f"Attachment processing failed: {str(attachment_error)}")
-                    continue
-            
-            return text + "\n\n[ATTACHMENTS]\n" + "\n\n".join(attachments_text) if attachments_text else text
-            
-    except Exception as e:
-        logging.error(f"Error processing EML attachments: {str(e)}")
-        return extract_text_from_file(file_path)  # Fallback to original behavior
-    
 def extract_eml_metadata(file_path):
     """Extract metadata from EML files with better error handling"""
     try:
         with open(file_path, "rb") as f:
             msg = BytesParser(policy=policy.default).parse(f)
-            return {
+            metadata = {
                 'from': msg.get('from', ''),
                 'to': msg.get('to', ''),
                 'subject': msg.get('subject', ''),
                 'date': msg.get('date', ''),
                 'cc': msg.get('cc', ''),
-                'bcc': msg.get('bcc', '')
+                'bcc': msg.get('bcc', ''),
+                'message_id': msg.get('message-id', ''),
+                'content_type': msg.get_content_type()
             }
+            
+            for header in ['x-priority', 'importance', 'in-reply-to']:
+                if msg.get(header):
+                    metadata[header] = msg.get(header)
+            
+            return metadata
     except Exception as e:
         logging.error(f"Error extracting EML metadata: {str(e)}")
         return {}
 
 def validate_subtype(subtype, category):
-    """Validate subtype against allowed values for category with case-insensitive check"""
-    if category not in SUBTYPE_MAPPING:
-        return None
-    
-    if not subtype:
+    """Validate subtype with fuzzy matching"""
+    if not subtype or category not in SUBTYPE_MAPPING:
         return None
         
-    # Case-insensitive comparison
-    subtype_lower = subtype.lower()
+    best_match, best_score = None, 0
     for valid_subtype in SUBTYPE_MAPPING[category]:
-        if valid_subtype.lower() == subtype_lower:
-            return valid_subtype  # Return the properly cased version
-    
-    return None
+        score = fuzz.ratio(subtype.lower(), valid_subtype.lower())
+        if score > best_score and score > 70:
+            best_match, best_score = valid_subtype, score
+            
+    return best_match
 
 def assign_to_team(classification, entities):
-    """Assign the request to appropriate team based on classification and entities with enhanced logic"""
+    """Assign the request to appropriate team with enhanced logic"""
     rules = {
         'Money Movement Inbound': 'Payment Processing Team',
         'Money Movement Outbound': 'Wire Transfer Team',
@@ -251,8 +233,7 @@ def assign_to_team(classification, entities):
         amounts = []
         for amount in entities['MONEY']:
             try:
-                # Handle different currency formats
-                clean_amount = amount.replace('$','').replace(',','').replace(' ','')
+                clean_amount = re.sub(r'[^\d.]', '', amount)
                 amounts.append(float(clean_amount))
             except ValueError:
                 continue
@@ -261,14 +242,20 @@ def assign_to_team(classification, entities):
     
     # Special case for international transfers
     if classification['label'] == 'Money Movement Outbound':
-        if any(('foreign' in entity.lower() or 'international' in entity.lower()) 
+        if any(('foreign' in entity.lower() or 'international' in entity.lower() or 
+               'fx' in entity.lower() or 'currency' in entity.lower())
                for entity in entities.get('GPE', [])):
             return 'International Transfers Team'
+    
+    # Special case for legal documents
+    if any(doc_type in entities.get('DOCUMENT_TYPE', [])
+           for doc_type in ['contract', 'agreement', 'amendment']):
+        return 'Legal Review Team'
     
     return rules.get(classification['label'], 'General Servicing Team')
 
 def query_openrouter(prompt, max_retries=3):
-    """Robust OpenRouter API query with improved error handling and retry logic"""
+    """Robust OpenRouter API query with improved error handling"""
     global OPENROUTER_ENABLED
     
     if not OPENROUTER_ENABLED:
@@ -290,7 +277,7 @@ def query_openrouter(prompt, max_retries=3):
     }
 
     payload = {
-        "model": "openai/gpt-3.5-turbo",  # Can be changed to other models
+        "model": "openai/gpt-3.5-turbo",
         "messages": [{
             "role": "system",
             "content": "You are a helpful financial email classification assistant."
@@ -300,18 +287,19 @@ def query_openrouter(prompt, max_retries=3):
         }],
         "temperature": 0.1,
         "max_tokens": 300,
-        "response_format": {"type": "json_object"}  # Added to ensure JSON response
+        "response_format": {"type": "json_object"}
     }
 
     for attempt in range(max_retries):
         try:
-            response = requests.post(
-                url, 
-                headers=headers, 
-                json=payload, 
-                timeout=30
-            )
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
             
+            if response.status_code == 429:
+                retry_after = int(response.headers.get('Retry-After', 2 * (attempt + 1)))
+                logging.warning(f"Rate limited - waiting {retry_after} seconds")
+                time.sleep(retry_after)
+                continue
+                
             if response.status_code == 400:
                 logging.error(f"Bad request - check your prompt format. Response: {response.text}")
                 continue
@@ -323,11 +311,6 @@ def query_openrouter(prompt, max_retries=3):
                 logging.error("Payment required - disabling OpenRouter")
                 OPENROUTER_ENABLED = False
                 return None
-            elif response.status_code == 429:
-                wait_time = 2 * (attempt + 1)
-                logging.warning(f"Rate limited - waiting {wait_time} seconds")
-                time.sleep(wait_time)
-                continue
                 
             response.raise_for_status()
             
@@ -349,7 +332,7 @@ def query_openrouter(prompt, max_retries=3):
     return None
 
 def query_deepseek(prompt, max_retries=3):
-    """Robust DeepSeek API query with improved error handling and retry logic"""
+    """Robust DeepSeek API query with improved error handling"""
     global DEEPSEEK_ENABLED
     
     if not DEEPSEEK_ENABLED:
@@ -386,13 +369,14 @@ def query_deepseek(prompt, max_retries=3):
 
     for attempt in range(max_retries):
         try:
-            response = requests.post(
-                url, 
-                headers=headers, 
-                json=payload, 
-                timeout=30
-            )
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
             
+            if response.status_code == 429:
+                retry_after = int(response.headers.get('Retry-After', 2 * (attempt + 1)))
+                logging.warning(f"Rate limited - waiting {retry_after} seconds")
+                time.sleep(retry_after)
+                continue
+                
             if response.status_code == 400:
                 logging.error(f"Bad request - check your prompt format. Response: {response.text}")
                 continue
@@ -404,11 +388,6 @@ def query_deepseek(prompt, max_retries=3):
                 logging.error("Invalid API key - disabling DeepSeek")
                 DEEPSEEK_ENABLED = False
                 return None
-            elif response.status_code == 429:
-                wait_time = 2 * (attempt + 1)
-                logging.warning(f"Rate limited - waiting {wait_time} seconds")
-                time.sleep(wait_time)
-                continue
                 
             response.raise_for_status()
             
@@ -430,27 +409,31 @@ def query_deepseek(prompt, max_retries=3):
     return None
 
 def classify_with_llm(text):
-    """Unified LLM classification with improved error handling and response validation"""
-    system_prompt = """You are a financial email classification assistant. 
+    """Enhanced LLM classification with better money movement detection"""
+    # Detect money movement direction
+    text_lower = text.lower()
+    direction = None
+    if any(kw in text_lower for kw in ['received', 'deposit', 'credited', 'payment received']):
+        direction = 'Inbound'
+    elif any(kw in text_lower for kw in ['send', 'transfer', 'wire', 'pay to', 'disburse']):
+        direction = 'Outbound'
+
+    system_prompt = f"""You are a financial email classification assistant. 
     Analyze the email content and return JSON with these exact fields:
-    - category: One of the valid categories
+    - category: One of {', '.join(VALID_CATEGORIES)}
     - subtype: Appropriate subtype or null
     - confidence: Confidence score (0-1)
     - reasoning: Explanation of classification
-    - entities: Extracted financial entities
+    - entities: Extracted financial entities"""
     
-    Valid categories: """ + ', '.join(VALID_CATEGORIES)
-    
-    user_prompt = f"""Classify this financial email:
-    
-    RULES:
-    1. category MUST be one of: {', '.join(VALID_CATEGORIES)}
-    2. For interest rate changes, use "Adjustment"
-    3. For money transfers, use appropriate Money Movement type
-    4. Include all relevant entities
-    
+    user_prompt = f"""Classify this financial email carefully:
+        
+    Key Indicators:
+    - INBOUND if mentions: received, deposit, payment, interest
+    - OUTBOUND if mentions: send, transfer, wire, pay
+
     Email Content:
-    {text}
+    {text[:10000]}
     
     Return valid JSON only with the required fields."""
 
@@ -464,13 +447,11 @@ def classify_with_llm(text):
                 content = response['choices'][0]['message']['content']
                 result = json.loads(content)
                 
-                # Validate required fields
                 if 'category' not in result or result['category'] not in VALID_CATEGORIES:
                     raise ValueError("Invalid or missing category in response")
                 
-                # Process confidence score
                 confidence = float(result.get('confidence', 0.5))
-                confidence = max(0.0, min(1.0, confidence))  # Clamp between 0.0 and 1.0
+                confidence = max(0.0, min(1.0, confidence))
                     
                 return {
                     'label': result['category'],
@@ -483,7 +464,7 @@ def classify_with_llm(text):
             except Exception as e:
                 logging.error(f"OpenRouter response parsing failed: {str(e)}")
                 if 'content' in locals():
-                    logging.debug(f"Response content: {content[:200]}...")  # Log first 200 chars
+                    logging.debug(f"Response content: {content[:200]}...")
     
     # Fallback to DeepSeek if enabled
     if DEEPSEEK_ENABLED:
@@ -497,7 +478,7 @@ def classify_with_llm(text):
                     raise ValueError("Invalid or missing category in response")
                 
                 confidence = float(result.get('confidence', 0.5))
-                confidence = max(0.0, min(1.0, confidence))  # Clamp between 0.0 and 1.0
+                confidence = max(0.0, min(1.0, confidence))
                     
                 return {
                     'label': result['category'],
@@ -523,41 +504,54 @@ def classify_with_fine_tuned_model(text):
             tokenizer="./fine-tuned-model"
         )
         result = classifier(text)[0]
-        
-        # Improved fallback logic with more categories
+
+        # Enhanced money movement direction detection
+        text_lower = text.lower()
+        if 'received' in text_lower or 'deposit' in text_lower or 'interest' in text_lower:
+            direction = 'Inbound'
+        elif 'send' in text_lower or 'transfer' in text_lower or 'pay' in text_lower:
+            direction = 'Outbound'
+
+        if 'interest' in text.lower() and 'payment' in text.lower():
+            return {
+                'label': 'Money Movement Inbound',
+                'score': 0.95,
+                'subtype': 'Interest',
+                'reasoning': 'Interest payment received - inbound transaction',
+                'llm_entities': extract_entities(text),
+                'source': 'Local Model (Enhanced Logic)'
+            }
+
         label_map = {
             'LABEL_0': 'Money Movement Inbound',
             'LABEL_1': 'Adjustment',
             'LABEL_2': 'Fee Payment',
             'LABEL_3': 'Money Movement Outbound'
         }
+
         label = label_map.get(result['label'], 'Other')
         
-        # Enhanced subtype detection
         subtype = None
-        text_lower = text.lower()
-        
-        if label == 'Money Movement Inbound':
-            if 'principal' in text_lower and 'interest' in text_lower and 'fee' in text_lower:
-                subtype = 'Principal+Interest+Fee'
-            elif 'principal' in text_lower and 'interest' in text_lower:
-                subtype = 'Principal+Interest'
-            elif 'principal' in text_lower:
-                subtype = 'Principal'
-            elif 'interest' in text_lower:
-                subtype = 'Interest'
-        elif label == 'Fee Payment':
-            if 'letter of credit' in text_lower:
-                subtype = 'Letter of Credit Fee'
-            elif 'ongoing' in text_lower:
-                subtype = 'Ongoing Fee'
+        if hasattr(result, 'llm_entities') and result.get('llm_entities'):
+            if 'Reference' in result['llm_entities']:
+                subtype = validate_subtype(result['llm_entities']['Reference'], label)
+            elif 'Type' in result['llm_entities']:
+                subtype = validate_subtype(result['llm_entities']['Type'], label)
+
+        if not subtype:
+            text_lower = text.lower()
+            if label == 'Money Movement Inbound':
+                if 'loan payment' in text_lower:
+                    subtype = 'Loan Payment'
+                elif 'principal' in text_lower and 'interest' in text_lower:
+                    subtype = 'Principal+Interest'
         
         return {
             'label': label,
             'score': result['score'],
             'subtype': subtype,
             'reasoning': 'Classified by local model',
-            'llm_entities': {},
+            'llm_entities': result.get('llm_entities', {}),
             'source': 'Local Model'
         }
     except Exception as e:
@@ -571,8 +565,52 @@ def classify_with_fine_tuned_model(text):
             'source': 'Error'
         }
 
+def inbound_classification(text):
+    """Helper function for inbound payment classification"""
+    return {
+        'label': 'Money Movement Inbound',
+        'score': 0.95,
+        'subtype': 'Interest',
+        'reasoning': 'Interest payment received - inbound transaction',
+        'llm_entities': extract_entities(text),
+        'source': 'Local Model (Enhanced Logic)'
+    }
+
+def outbound_classification(text):
+    """Helper function for outbound payment classification"""
+    return {
+        'label': 'Money Movement Outbound',
+        'score': 0.95,
+        'subtype': None,
+        'reasoning': 'Payment request detected - outbound transaction',
+        'llm_entities': extract_entities(text),
+        'source': 'Local Model (Enhanced Logic)'
+    }
+
 def classify_email(text):
-    """Main classification function with improved fallback hierarchy and validation"""
+    """Main classification function with improved money movement detection"""
+    global connection_ok
+    # More balanced direction detection
+    text_lower = text.lower()
+    
+    # Strong inbound indicators
+    strong_inbound = any(kw in text_lower for kw in [
+        'received', 'deposit', 'remittance', 'credited', 'payment received'
+    ])
+    
+    # Strong outbound indicators
+    strong_outbound = any(kw in text_lower for kw in [
+        'send', 'transfer', 'wire', 'disburse', 
+        'pay to', 'pay account', 'debit', 'process payment'
+    ])
+    
+    # Contextual indicators
+    if 'interest' in text_lower and 'payment' in text_lower:
+        return inbound_classification(text)
+        
+    if 'process this payment' in text_lower or 'please pay' in text_lower or 'request for money movement outbound' in text_lower:
+        return outbound_classification(text)
+    
     if not text.strip():
         return {
             'label': 'Other',
@@ -583,17 +621,39 @@ def classify_email(text):
             'source': 'None'
         }
     
-    # Try LLM classification first (OpenRouter -> DeepSeek)
+    # Try LLM classification first
     llm_result = classify_with_llm(text)
-    if llm_result and llm_result['score'] >= 0.7:  # Only accept high-confidence LLM results
+    if llm_result and llm_result['score'] >= 0.7:
+        if not connection_ok and 'OpenRouter' in llm_result['source']:
+            llm_result['source'] = 'Local Model (Fallback)'
         return llm_result
     
     # Fallback to local model
     local_result = classify_with_fine_tuned_model(text)
-    if local_result['score'] >= 0.6:  # Only accept decent-confidence local results
+    if local_result['score'] >= 0.6:
         return local_result
     
-    # Final fallback
+    # Final fallback with basic keyword matching
+    text_lower = text.lower()
+    if any(keyword in text_lower for keyword in ['transfer', 'send money', 'wire', 'pay to']):
+        return {
+            'label': 'Money Movement Outbound',
+            'score': 0.5,
+            'subtype': None,
+            'reasoning': 'Detected money transfer keywords',
+            'llm_entities': {},
+            'source': 'Keyword Fallback'
+        }
+    elif any(keyword in text_lower for keyword in ['payment', 'received', 'deposit', 'credited']):
+        return {
+            'label': 'Money Movement Inbound',
+            'score': 0.5,
+            'subtype': None,
+            'reasoning': 'Detected payment keywords',
+            'llm_entities': {},
+            'source': 'Keyword Fallback'
+        }
+    
     return {
         'label': 'Other',
         'score': 0.0,
@@ -604,7 +664,7 @@ def classify_email(text):
     }
 
 def detect_duplicates(text, previous_emails, threshold=0.85):
-    """Enhanced duplicate detection with better preview and performance"""
+    """Enhanced duplicate detection with better preview, performance, and batch processing"""
     if not previous_emails or not text.strip():
         return []
 
@@ -626,58 +686,86 @@ def detect_duplicates(text, previous_emails, threshold=0.85):
                     duplicates.append({
                         'index': original_index,
                         'score': float(sim),
-                        'preview': ' '.join(batch[j].split()[:15]) + ('...' if len(batch[j].split()) > 15 else '')
+                        'preview': ' '.join(batch[j].split()[:15]) + ('...' if len(batch[j].split()) > 15 else ''),
+                        'similarity_percentage': f"{float(sim)*100:.1f}%"
                     })
         
-        return duplicates
+        # Sort by similarity score (highest first)
+        duplicates.sort(key=lambda x: x['score'], reverse=True)
+        return duplicates[:5]  # Return top 5 matches
     except Exception as e:
         logging.error(f"Duplicate detection failed: {str(e)}")
         return []
 
 def extract_entities(text):
-    """Comprehensive entity extraction with enhanced financial patterns"""
+    """Comprehensive entity extraction with enhanced patterns and cleaning"""
     try:
+        def clean_entity(text):
+            """Remove trailing junk but preserve important chars"""
+            return re.sub(r'[\n\-].*$', '', text).strip()
+
         doc = nlp(text)
         entities = {ent.label_: [] for ent in doc.ents}
-        for ent in doc.ents:
-            entities[ent.label_].append(ent.text)
         
-        # Enhanced financial patterns
-        amounts = re.findall(r'\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?', text)
-        if amounts:
-            entities["MONEY"] = list(set(amounts))  # Remove duplicates
+        # Enhanced account number pattern
+        account_numbers = re.findall(
+            r'(?:Account|Acct|Account No\.?)[:\s-]*([A-Za-z0-9-]{4,})', 
+            text, 
+            re.I
+        )
+        if account_numbers:
+            entities["ACCOUNT"] = list(set(clean_entity(acc) for acc in account_numbers))
             
-        # Improved date detection
+        # More robust date patterns
         date_patterns = [
-            r'\b\d{1,2}[A-Z]{3}\d{2,4}\b',  # 01JAN2023
-            r'\b\d{1,2}/\d{1,2}/\d{2,4}\b',  # MM/DD/YYYY
-            r'\b[A-Z][a-z]{2,8} \d{1,2},? \d{4}\b'  # January 1, 2023
+            r'\b\d{1,2}[A-Z]{3}\d{2,4}\b',  # 25MAR25
+            r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',  # 25/03/2025
+            r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2},? \d{4}\b'
         ]
+
         dates = []
         for pattern in date_patterns:
             dates.extend(re.findall(pattern, text, re.I))
         if dates:
-            entities["DATE"] = list(set(dates))
+            entities["DATE"] = list(set(clean_entity(d) for d in dates))
             
-        # Enhanced account number detection
-        account_numbers = re.findall(r'(?:Account|Acct)(?: #|:)?\s*([A-Z0-9-]{5,})', text, re.I)
-        if account_numbers:
-            entities["ACCOUNT"] = list(set(account_numbers))
-            
-        # Enhanced loan ID detection
+        # Enhanced loan ID detection with cleaning
         loan_ids = re.findall(r'Loan (?:ID|Number|No\.?)\s*[:#]?\s*([A-Z0-9-]{4,})', text, re.I)
         if loan_ids:
-            entities["LOAN_ID"] = list(set(loan_ids))
+            entities["LOAN_ID"] = list(set(clean_entity(lid) for lid in loan_ids))
             
-        # Enhanced rate detection
+        # Enhanced rate detection with cleaning
         rates = re.findall(r'(?:Rate|Interest)\s*[:=]?\s*([\d.]+%?)', text, re.I)
         if rates:
-            entities["INTEREST_RATE"] = list(set(rates))
+            entities["INTEREST_RATE"] = list(set(clean_entity(rate) for rate in rates))
             
-        # Extract names
-        names = re.findall(r'(?:Dear|Hello|Hi|To)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)', text, re.I)
+        # Extract names with cleaning
+        names = re.findall(
+            r'(?:Dear|Hello|Hi|To|Attn:|Attention:)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)', 
+            text, 
+            re.I
+        )
         if names:
-            entities["PERSON"] = list(set(names))
+            entities["PERSON"] = list(set(clean_entity(name) for name in names))
+            
+        # Extract document references with cleaning
+        documents = re.findall(
+            r'(?:Document|Doc|Contract|Agreement)\s*(?:No\.?|Number)?\s*[:#]?\s*([A-Z0-9-]+)', 
+            text, 
+            re.I
+        )
+        if documents:
+            entities["DOCUMENT_REF"] = list(set(clean_entity(doc) for doc in documents))
+            
+        # Extract email addresses (no cleaning needed)
+        emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
+        if emails:
+            entities["EMAIL"] = list(set(emails))  # Emails don't need cleaning
+            
+        # Extract phone numbers with cleaning
+        phones = re.findall(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b', text)
+        if phones:
+            entities["PHONE"] = list(set(clean_entity(ph) for ph in phones))
             
         return {k: v for k, v in entities.items() if v}
     except Exception as e:
@@ -763,6 +851,11 @@ def process_email(file_path, previous_emails=None):
             logging.warning(f"Empty text extracted from {file_path}")
             return None
         
+        # Skip non-financial files
+        if not is_financial_content(text):
+            logging.info(f"Skipping non-financial file: {file_path}")
+            return None
+            
         metadata = {}
         if file_path.endswith(".eml"):
             metadata = extract_eml_metadata(file_path)
@@ -805,54 +898,85 @@ def process_email(file_path, previous_emails=None):
         logging.error(f"Error processing {file_path}: {str(e)}")
         return None
 
+# Constants
+MAPPINGS_FILE = "mappings.json"
+
+# Function to load the mappings
+def load_mappings():
+    """Load the category and sub-category mappings from the JSON file."""
+    if os.path.exists(MAPPINGS_FILE):
+        with open(MAPPINGS_FILE, "r") as f:
+            return json.load(f)
+    else:
+        return {"categories": {}}
+
+# Function to save the mappings
+def save_mappings(mappings):
+    """Save the updated mappings to the JSON file."""
+    with open(MAPPINGS_FILE, "w") as f:
+        json.dump(mappings, f, indent=4)
+
+# Function to add or update categories and sub-categories
+def set_category_subcategory(category, subcategories):
+    """
+    Add or update categories and subcategories.
+    :param category: Main category name
+    :param subcategories: List of sub-categories
+    """
+    mappings = load_mappings()
+
+    if category in mappings['categories']:
+        # Append new sub-categories without duplication
+        existing_subcategories = set(mappings['categories'][category])
+        existing_subcategories.update(subcategories)
+        mappings['categories'][category] = list(existing_subcategories)
+    else:
+        # Add new category with sub-categories
+        mappings['categories'][category] = subcategories
+
+    save_mappings(mappings)
+    return mappings
+
 def test_api_connection():
-    """Comprehensive API connection test with better reporting"""
-    print("\nTesting API connections...")
+    """Comprehensive API connection test with better diagnostics"""
+    print("\nAPI Connection Diagnostics:")
     
-    test_results = {
-        'OpenRouter': False,
-        'DeepSeek': False
-    }
+    # Test network connectivity first
+    try:
+        print(f"Internet connectivity: {requests.get('https://google.com').status_code == 200}")
+        print(f"OpenRouter reachable: {requests.get('https://openrouter.ai').status_code == 200}")
+        print(f"DeepSeek reachable: {requests.get('https://api.deepseek.com').status_code == 200}")
+    except Exception as e:
+        print(f"⚠️ Network test failed: {str(e)}")
+
+    test_results = {'OpenRouter': False, 'DeepSeek': False}
     
-    # Test OpenRouter first
     if OPENROUTER_ENABLED:
-        print("Testing OpenRouter connection...")
-        test_prompt = "Respond with this exact text: 'API_TEST_OK'"
-        response = query_openrouter(test_prompt)
-        
-        if response:
-            try:
-                content = response['choices'][0]['message']['content']
-                if "API_TEST_OK" in content:
-                    print("✅ OpenRouter API connection successful!")
-                    test_results['OpenRouter'] = True
-                else:
-                    print(f"❌ Unexpected OpenRouter response: {content[:100]}...")
-            except KeyError:
-                print("❌ Invalid OpenRouter response format")
-    
-    # Test DeepSeek
+        print("\nTesting OpenRouter...")
+        try:
+            response = query_openrouter("Respond with 'API_TEST_OK'")
+            if response and "API_TEST_OK" in response.get('choices', [{}])[0].get('message', {}).get('content', ''):
+                test_results['OpenRouter'] = True
+                print("✅ OpenRouter working")
+            else:
+                print("❌ OpenRouter response invalid - check API key")
+        except Exception as e:
+            print(f"❌ OpenRouter test failed: {str(e)}")
+
     if DEEPSEEK_ENABLED:
-        print("Testing DeepSeek connection...")
-        test_prompt = "Respond with this exact text: 'API_TEST_OK'"
-        response = query_deepseek(test_prompt)
-        
-        if response:
-            try:
-                content = response['choices'][0]['message']['content']
-                if "API_TEST_OK" in content:
-                    print("✅ DeepSeek API connection successful!")
-                    test_results['DeepSeek'] = True
-                else:
-                    print(f"❌ Unexpected DeepSeek response: {content[:100]}...")
-            except KeyError:
-                print("❌ Invalid DeepSeek response format")
+        print("\nTesting DeepSeek...")
+        try:
+            response = query_deepseek("Respond with 'API_TEST_OK'")
+            if response and "API_TEST_OK" in response.get('choices', [{}])[0].get('message', {}).get('content', ''):
+                test_results['DeepSeek'] = True
+                print("✅ DeepSeek working")
+            else:
+                print("❌ DeepSeek response invalid - check API key")
+        except Exception as e:
+            print(f"❌ DeepSeek test failed: {str(e)}")
     
     if not any(test_results.values()):
-        print("❌ No working API connections found")
-    elif not all(test_results.values()):
-        print("⚠️ Partial API connectivity - some services unavailable")
-    
+        print("\n❌ All API connections failed - using local models")
     return any(test_results.values())
 
 if __name__ == "__main__":

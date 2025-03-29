@@ -1,0 +1,13 @@
+{
+    "categories": {
+        "Financial": [
+            "Loan Request",
+            "Account Update",
+            "Mortgage Payment"
+        ],
+        "Support": [
+            "Technical Issue",
+            "General Inquiry"
+        ]
+    }
+}

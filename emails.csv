@@ -22,3 +22,9 @@ text,label,priority
 "Reduce rate from 6.25% to 5.75% on loan LN-88992",1,medium
 "Please change my 7.1% rate to 6.5%",1,medium
 "Adjust interest from 8.0% → 7.25% for account ACCT-789",1,medium
+"Urgent: Please process $120,000 transfer to HSBC UK by COB today"
+"Requesting adjustment of interest rate from 5.2% to 4.8%"
+"We received interest payment of $1000",0,high
+"Please transfer $5000 to account XYZ",1,high
+"Loan payment received for LN-123",0,medium
+"Wire $12000 to client ABC",1,high
