@@ -26,7 +26,8 @@ def set_category():
             "mappings": updated_mappings
         }), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        app.logger.error(f"Error in set_category: {e}")
+        return jsonify({"error": "An internal error has occurred."}), 500
 
 @app.route('/get_mappings', methods=['GET'])
 def get_mappings():
@@ -38,7 +39,8 @@ def get_mappings():
             "valid_categories": list(VALID_CATEGORIES)
         }), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        app.logger.error(f"Error in get_mappings: {e}")
+        return jsonify({"error": "An internal error has occurred."}), 500
 
 import os
 
